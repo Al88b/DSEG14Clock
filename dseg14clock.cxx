@@ -1,4 +1,4 @@
-//g++ main.cpp -o clock_app -lSDL2 -lSDL2_ttf -std=c++11
+//g++ dseg14clock.cxx -o clock_app -lSDL2 -lSDL2_ttf -std=c++11
 
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_ttf.h>
@@ -7,10 +7,13 @@
 #include <iomanip>
 #include <sstream>
 #include <string>
+#include <algorithm>
+#include <ctime>
 
-// Screen dimensions
-const int SCREEN_WIDTH = 1200;
-const int SCREEN_HEIGHT = 300;
+// Layout: the window is sized to fit the text at startup.
+// Set PADDING to 0 for a window that hugs the text with no border at all.
+const int PADDING = 10;   // empty space around the text (pixels)
+const int LINE_GAP = 10;  // space between the two lines (pixels)
 
 // Helper function to render text to an SDL_Texture
 SDL_Texture* CreateTextTexture(TTF_Font* font, const std::string& text, SDL_Color color, SDL_Renderer* renderer, SDL_Rect& outRect) {
@@ -50,12 +53,34 @@ int main(int argc, char* argv[]) {
         return -1;
     }
 
+    // Load DSEG14 Font first so we can measure the text before creating the window
+    // Adjust size 64 to fit your preferred layout size (the window follows it)
+    TTF_Font* font = TTF_OpenFont("/usr/local/share/fonts/DSEG14-Classic/DSEG14Classic-Bold.ttf", 64);
+    if (!font) {
+        std::cerr << "Failed to load font! TTF_Error: " << TTF_GetError() << std::endl;
+        TTF_Quit();
+        SDL_Quit();
+        return -1;
+    }
+
+    // Measure both lines. DSEG14 is monospaced, so any sample with the same
+    // number of characters as the real strings gives the exact size.
+    int dtW = 0, dtH = 0, cdW = 0, cdH = 0;
+    TTF_SizeUTF8(font, "Wed 2026-11-01 15:30:22", &dtW, &dtH);
+    TTF_SizeUTF8(font, "T- 10:00.000", &cdW, &cdH);
+
+    const int SCREEN_WIDTH  = std::max(dtW, cdW) + 2 * PADDING;
+    const int SCREEN_HEIGHT = dtH + LINE_GAP + cdH + 2 * PADDING;
+    const int DATETIME_Y    = PADDING;
+    const int COUNTDOWN_Y   = PADDING + dtH + LINE_GAP;
+
     // Create Window
     SDL_Window* window = SDL_CreateWindow("DSEG14 Clock & Countdown", 
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 
         SCREEN_WIDTH, SCREEN_HEIGHT, SDL_WINDOW_SHOWN);
     if (!window) {
         std::cerr << "Window could not be created! SDL_Error: " << SDL_GetError() << std::endl;
+        TTF_CloseFont(font);
         TTF_Quit();
         SDL_Quit();
         return -1;
@@ -66,25 +91,14 @@ int main(int argc, char* argv[]) {
     if (!renderer) {
         std::cerr << "Renderer could not be created! SDL_Error: " << SDL_GetError() << std::endl;
         SDL_DestroyWindow(window);
+        TTF_CloseFont(font);
         TTF_Quit();
         SDL_Quit();
         return -1;
     }
 
-    // Load DSEG14 Font (Ensure the file path is correct relative to your build output)
-    // Adjust size 64 to fit your preferred layout size
-    TTF_Font* font = TTF_OpenFont("/usr/local/share/fonts/DSEG14-Classic/DSEG14Classic-Bold.ttf", 64);
-    if (!font) {
-        std::cerr << "Failed to load font! TTF_Error: " << TTF_GetError() << std::endl;
-        SDL_DestroyRenderer(renderer);
-        SDL_DestroyWindow(window);
-        TTF_Quit();
-        SDL_Quit();
-        return -1;
-    }
-
-    // Define colors (Vibrant digital clock amber/orange)
-    SDL_Color textColor = { 255, 140, 0, 255 }; 
+    // Define colors (Red)
+    SDL_Color textColor = { 255, 0, 0, 255 }; 
 
     // Textures and Rectangles for layout containers
     SDL_Texture* dateTimeTexture = nullptr;
@@ -157,7 +171,7 @@ int main(int argc, char* argv[]) {
 
             // Center alignment math
             dateTimeRect.x = (SCREEN_WIDTH - dateTimeRect.w) / 2;
-            dateTimeRect.y = 100; 
+            dateTimeRect.y = DATETIME_Y;
         }
 
         // Render Countdown only when milliseconds update
@@ -168,7 +182,7 @@ int main(int argc, char* argv[]) {
 
             // Center alignment math
             countdownRect.x = (SCREEN_WIDTH - countdownRect.w) / 2;
-            countdownRect.y = 220; 
+            countdownRect.y = COUNTDOWN_Y;
         }
 
         // --- RENDERING PHASE ---
