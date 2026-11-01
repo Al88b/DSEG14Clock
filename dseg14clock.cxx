@@ -67,7 +67,7 @@ int main(int argc, char* argv[]) {
     // number of characters as the real strings gives the exact size.
     int dtW = 0, dtH = 0, cdW = 0, cdH = 0;
     TTF_SizeUTF8(font, "Wed 2026-11-01 15:30:22", &dtW, &dtH);
-    TTF_SizeUTF8(font, "T- 10:00.000", &cdW, &cdH);
+    TTF_SizeUTF8(font, "T+ 00:00.000", &cdW, &cdH);
 
     const int SCREEN_WIDTH  = std::max(dtW, cdW) + 2 * PADDING;
     const int SCREEN_HEIGHT = dtH + LINE_GAP + cdH + 2 * PADDING;
@@ -75,7 +75,7 @@ int main(int argc, char* argv[]) {
     const int COUNTDOWN_Y   = PADDING + dtH + LINE_GAP;
 
     // Create Window
-    SDL_Window* window = SDL_CreateWindow("DSEG14 Clock & Countdown", 
+    SDL_Window* window = SDL_CreateWindow("DSEG14 Clock & Timer", 
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 
         SCREEN_WIDTH, SCREEN_HEIGHT, SDL_WINDOW_SHOWN);
     if (!window) {
@@ -111,11 +111,13 @@ int main(int argc, char* argv[]) {
     std::string lastDateTimeStr = "";
     std::string lastCountdownStr = "";
 
-    // Target duration for the countdown: 10 minutes (600,000 milliseconds)
-    long long remainingMs = 600000; 
-
-    // Track time delta using high-precision steady clock
-    auto prevTime = std::chrono::steady_clock::now();
+    // Count-up timer start point, rounded down to a whole second of the system
+    // clock. Because the timer and the clock read the same clock, the timer's
+    // milliseconds always match the clock's, and its seconds tick over at the
+    // same instant as the clock's seconds.
+    const long long WRAP_MS = 60LL * 60 * 1000;  // wrap 59:59.999 -> 00:00.000
+    auto startTime = std::chrono::time_point_cast<std::chrono::seconds>(
+        std::chrono::system_clock::now());
 
     bool quit = false;
     SDL_Event e;
@@ -129,17 +131,6 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        // --- TIME DELTA CALCULATIONS ---
-        auto currentTime = std::chrono::steady_clock::now();
-        auto elapsedTime = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - prevTime).count();
-        prevTime = currentTime;
-
-        // Process Countdown Timer
-        if (remainingMs > 0) {
-            remainingMs -= elapsedTime;
-            if (remainingMs < 0) remainingMs = 0;
-        }
-
         // --- GET CURRENT SYSTEM TIME ---
         auto sysNow = std::chrono::system_clock::now();
         std::time_t sysTime = std::chrono::system_clock::to_time_t(sysNow);
@@ -150,13 +141,16 @@ int main(int argc, char* argv[]) {
         dtStream << std::put_time(localTime, "%a %Y-%m-%d %H:%M:%S");
         std::string currentDateTimeStr = dtStream.str();
 
-        // Format Countdown String (MM:SS:mmm)
-        long long mins = (remainingMs / 60000) % 60;
-        long long secs = (remainingMs / 1000) % 60;
-        long long msecs = remainingMs % 1000;
+        // Format Count-up String (MM:SS.mmm), from the same clock reading
+        long long elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+            sysNow - startTime).count();
+        elapsedMs = ((elapsedMs % WRAP_MS) + WRAP_MS) % WRAP_MS;  // wrap round (also safe if the clock is set back)
+        long long mins = elapsedMs / 60000;
+        long long secs = (elapsedMs / 1000) % 60;
+        long long msecs = elapsedMs % 1000;
 
         std::stringstream cdStream;
-        cdStream << "T- " 
+        cdStream << "T+ " 
                  << std::setfill('0') << std::setw(2) << mins << ":"
                  << std::setfill('0') << std::setw(2) << secs << "."
                  << std::setfill('0') << std::setw(3) << msecs;
@@ -174,7 +168,7 @@ int main(int argc, char* argv[]) {
             dateTimeRect.y = DATETIME_Y;
         }
 
-        // Render Countdown only when milliseconds update
+        // Render count-up timer only when milliseconds update
         if (currentCountdownStr != lastCountdownStr) {
             if (countdownTexture) SDL_DestroyTexture(countdownTexture); // Clean old GPU memory
             countdownTexture = CreateTextTexture(font, currentCountdownStr, textColor, renderer, countdownRect);
